@@ -2,6 +2,7 @@
 #### Function FEIS ####
 #######################
 #' @importFrom Rdpack reprompt
+#' @importFrom utils packageVersion
 #' @importFrom stats as.formula ave coef coefficients lm model.matrix model.response printCoefmat pt resid sd terms update var
 
 #' @title Fixed Effects Individual Slope Estimator
@@ -14,7 +15,7 @@
 #' \code{feis} is a special function to estimate linear fixed effects models with individual-specific slopes.
 #' In contrast to conventional fixed effects models, data are not person "demeaned", but "detrended" by
 #' the predicted individual slope of each person
-#' \insertCite{Bruderl.2015.387,Wooldridge.2010.384}{feisr}.
+#' \insertCite{Bruderl.2015.387,Ruttenauer.2020,Wooldridge.2010.384}{feisr}.
 #'
 #' Estimation requires at least \code{q+1} observations per unit, where \code{q} is the number of slope
 #' parameters (including a constant).
@@ -34,22 +35,29 @@
 #' If specified, \code{feis} estimates panel-robust standard errors. Panel-robust standard errors are
 #' robust to arbitrary forms of serial correlation within groups formed by \code{id} as well as
 #' heteroscedasticity across groups \insertCite{@see @Wooldridge.2010.384, pp. 379-381}{feisr}.
-
 #'
-#' @seealso \code{\link[plm]{plm}}, \code{\link[feisr]{feistest}}
+#' The model output can be exported using the \code{\link[texreg]{texreg}} package.
+#'
+#' @seealso \code{\link[feisr]{summary.feis}}, \code{\link[plm]{plm}}, \code{\link[plm]{pvcm}},
+#' \code{\link[plm]{pmg}}, \code{\link[feisr]{feistest}}
 #'
 #' @param formula	a symbolic description for the model to be fitted (see Details).
+#' @param object,x,model	an object of class "\code{feis}".
 #' @param data a \code{data.frame} containing the specified variables.
 #' @param id the name of a unique group / person identifier (as string).
 #' @param robust logical. If \code{TRUE} estimates cluster robust standard errors (default is \code{FALSE}).
 #' @param intercept logical. If \code{TRUE} estimates the model with an intercept (default is \code{FALSE}).
 #' @param dropgroups logical. If \code{TRUE} groups without any within variance on a slope variable are dropped
 #'  , if \code{FALSE} those variables are omitted for the respective groups only (default is \code{FALSE}).
+#' @param tol	the tolerance for detecting linear dependencies in the residual maker transformation
+#' (see \code{\link[base]{solve}}). The argument is forwarded to \code{\link[feisr]{bsfeistest}}.
+#' @param newdata the new data set for the predict method.
+#' @param lhs,rhs indexes of the left- and right-hand side for the methods formula and terms.
 #' @param ...	further arguments.
 #'
 #' @return An object of class "\code{feis}", containing the following elements:
 #' \item{coefficients}{the vector of coefficients.}
-#' \item{vcov}{the variance-covariance matrix of the coefficients.}
+#' \item{vcov}{the scaled variance-covariance matrix of the coefficients.}
 #' \item{residuals}{the vector of residuals (computed from the "detrended" data).}
 #' \item{df.residual}{degrees of freedom of the residuals.}
 #' \item{formula}{an object of class "\code{Formula}" describing the model.}
@@ -72,6 +80,7 @@
 #' \item{r2}{R squared of the "detrended" model.}
 #' \item{adj.r2}{adjusted R squared of the "detrended" model.}
 #' \item{vcov_arg}{a character containing the method used to compute the variance-covariance matrix.}
+#' \item{tol}{the tolerance parameter (for use in bsfeistest).}
 #'
 #' @references
 #' \insertAllCited{}
@@ -81,8 +90,11 @@
 #' feis.mod <- feis(lnw ~ marry + enrol + as.factor(yeargr) | exp + I(exp^2),
 #'                  data = mwp, id = "id", robust = TRUE)
 #' summary(feis.mod)
+#'
 #' @export
-feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroups = FALSE, ...){
+#'
+feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
+                 dropgroups = FALSE, tol = .Machine$double.eps, ...){
 
   if(!is.character(formula)){
     formula <- Formula::Formula(formula)
@@ -143,13 +155,14 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
 
   # Check for collinearity in slopes and within variance in slopes (to avoid computationally singular)
   X1_test <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
-  X1_test_dm <- X1_test[, -1, drop = FALSE] - apply(X1_test[, -1, drop = FALSE], 2, FUN =
-                                                function(u) ave(u, i, FUN = function(z) mean(z)))
+  X1_test_dm <- X1_test[, -1, drop = FALSE] - apply(X1_test[, -1, drop = FALSE], 2,
+                                               FUN = function(u) ave(u, i, FUN = function(z) mean(z)))
 
   if(qr(X1_test_dm)$rank < ncol(X1_test_dm)){
     stop(paste("Perfect collinearity in slope variables"))
   }
 
+  # Check within variance
   wvar <- apply(X1_test[, -1, drop = FALSE], 2, FUN = function(u) ave(u, i, FUN = function(z) sd(z)))
   novar <- apply(wvar, 1, FUN = function(u) any(u == 0))
 
@@ -168,7 +181,7 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
   # Save omitted rows
   omitted <- new_rownames[-as.numeric(row.names(data))]
   names(omitted) <- orig_rownames[-as.numeric(row.names(data))]
-  attr(omitted, "class")<-"omit"
+  attr(omitted, "class") <- "omit"
 
   # Preserve original row.names
   row.names(data)  <-  orig_rownames[as.numeric(row.names(data))]
@@ -181,7 +194,6 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
 
 
   ### First level (individual slope) regression
-
   X1 <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
   sv <- colnames(X1)[-1]
 
@@ -193,14 +205,22 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
   ny <- ncol(Y1)
   nx <- ncol(X1)
 
-  df_step1<-cbind(X1, Y1)
+  df_step1 <- cbind(X1, Y1)
 
-  dhat <- by(df_step1, i, FUN=function(u) hatm(y = u[, (nx + 1):(nx + ny)], x = u[, 1:nx],
-                                               checkcol = !dropgroups))
-  dhat <- do.call(rbind, lapply(dhat, as.matrix))
+  dhat <- by(df_step1, i, FUN = function(u) data.frame(hatm(y = u[, (nx + 1):(nx + ny)], x = u[, 1:nx],
+                                               checkcol = !dropgroups, tol = tol)))
+
+  if(utils::packageVersion("dplyr") >= "1.0.0"){
+    dhat <- dplyr::bind_rows(rbind(dhat), .id = NULL) # only for version dplyr >= 1.0.0 keeps rownames
+  }else{
+    dhat <- do.call(rbind, lapply(dhat, as.matrix)) # use dplyr for more efficiency
+  }
+
+  # Keep orig col names
+  colnames(dhat) <- colnames(df_step1)[(nx + 1):(nx + ny)]
 
   # Ensure original order
-  dhat <- dhat[match(rownames(data), rownames(dhat)), ]
+  dhat <- as.matrix(dhat[match(rownames(data), rownames(dhat)), ])
 
 
   ### De-trend Data
@@ -285,22 +305,53 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
 
   ### Standard errors
 
-  if(!robust){
-    sigma <- sum((u * u)) / (df)
-    vcov <- sigma * solve(t(X) %*% X)
-    se <- sqrt(diag(vcov))
-  }
 
-  # Cluster robust SEs
-  if(robust){
-    mxu <- X * u
-    e <- rowsum(mxu, i)
-    dfc <- ((length(unique(i)) / (length(unique(i)) - 1))
-            * ((length(i) - 1) / (length(i) - (ncol(X1) + ncol(X)))))
-    vcovCL <- dfc * (solve(t(X) %*% X) %*% t(e) %*% e %*% solve(t(X) %*% X))
-    se <- sqrt(diag(vcovCL))
+  # Check for NAs in beta, and drop vars from for SE calculation
+  if(any(is.na(beta))){
+    Xn <- X[, -which(is.na(beta))]
 
-    vcov <- vcovCL
+    vcov <- matrix(NA, ncol = ncol(X), nrow = ncol(X))
+    colnames(vcov) <- colnames(X)
+    rownames(vcov) <- colnames(X)
+
+    if(!robust){
+      sigma <- sum((u * u)) / (df)
+      tmp <- sigma * solve(crossprod(Xn))
+      vcov[rownames(tmp), colnames(tmp)] <- tmp
+      # se <- sqrt(diag(vcov))
+    }
+
+    # Cluster robust SEs
+    if(robust){
+      mxu <- Xn * u
+      e <- rowsum(mxu, i)
+      dfc <- ((length(unique(i)) / (length(unique(i)) - 1))
+              * ((length(i) - 1) / (length(i) - (ncol(X1) + ncol(Xn)))))
+      vcovCL <- dfc * (solve(crossprod(Xn)) %*% crossprod(e) %*% solve(crossprod(Xn)))
+
+      vcov[rownames(vcovCL), colnames(vcovCL)] <- vcovCL
+
+      # se <- sqrt(diag(vcov))
+    }
+
+  }else{
+    if(!robust){
+      sigma <- sum((u * u)) / (df)
+      vcov <- sigma * solve(crossprod(X))
+      # se <- sqrt(diag(vcov))
+    }
+
+    # Cluster robust SEs
+    if(robust){
+      mxu <- X * u
+      e <- rowsum(mxu, i)
+      dfc <- ((length(unique(i)) / (length(unique(i)) - 1))
+              * ((length(i) - 1) / (length(i) - (ncol(X1) + ncol(X)))))
+      vcovCL <- dfc * (solve(crossprod(X)) %*% crossprod(e) %*% solve(crossprod(X)))
+      # se <- sqrt(diag(vcovCL))
+
+      vcov <- vcovCL
+    }
   }
 
 
@@ -331,11 +382,12 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE, dropgroup
     result$vcov_arg <- "Cluster robust standard errors"
   }else{result$vcov_arg <- "Normal standard errors"}
 
+  result$tol <- tol
+
   class(result)  <-  c("feis")
 
   return(result)
 }
-#' @exportClass feis
 
 
 
@@ -368,7 +420,7 @@ slpmk <- function(Y=NA, X=NA, Z=NA, beta=NA, checkcol = TRUE){
   }
 
 
-  res[vars] <- as.vector(solve(t(Z) %*% Z) %*% t(Z) %*% (Y - X %*% beta))
+  res[vars] <- as.vector(solve(crossprod(Z), crossprod(Z, (Y - X %*% beta))))
   return(t(res))
 }
 
@@ -400,8 +452,9 @@ slpmk <- function(Y=NA, X=NA, Z=NA, beta=NA, checkcol = TRUE){
 #' feis.mod <- feis("log(gsp) ~ log(pcap) + log(pc) + log(emp) + unemp | year",
 #'                  data = Produc, id = "state", robust = TRUE)
 #' slps <- slopes(feis.mod)
+#'
 #' @export
-
+#'
 slopes <- function(model=NA, ...){
 
   data <- model$model
@@ -416,6 +469,14 @@ slopes <- function(model=NA, ...){
   # Omit intercept
   if(plm::has.intercept(fm)[1]){
     X <- X[, -1, drop = FALSE]
+  }
+
+  # Check for and drop NA coef columns
+  if(any(is.na(coefs))){
+    drop <- which(is.na(coefs))
+
+    X <- X[, -drop, drop = FALSE]
+    coefs <- coefs[-drop, drop = FALSE]
   }
 
   i <- model$id

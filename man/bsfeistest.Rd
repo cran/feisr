@@ -4,8 +4,15 @@
 \alias{bsfeistest}
 \title{Bootstrapped Regression Test}
 \usage{
-bsfeistest(model = NA, type = c("all", "bs1", "bs2", "bs3"),
-  rep = 500, seed = NULL, prog = TRUE, ...)
+bsfeistest(
+  model = NA,
+  type = c("all", "bs1", "bs2", "bs3"),
+  terms = NULL,
+  rep = 500,
+  seed = NULL,
+  prog = TRUE,
+  ...
+)
 }
 \arguments{
 \item{model}{an object of class "\code{feis}".}
@@ -13,6 +20,10 @@ bsfeistest(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 \item{type}{one of "\code{all}" (the Default), "\code{bs1}" for test of FEIS against FE only,
 "\code{bs2}" for test of FE against RE only, and "\code{bs3}" for test of FEIS against RE only
 (see also Details).}
+
+\item{terms}{An optional character vector specifying which coefficients should be jointly tested.
+By default, all covariates are included in the Wchi-squared test. For "\code{type=art2}", the
+slope variable is always included in "\code{terms}".}
 
 \item{rep}{the number of repetitions to be used in bootstrapping (default is 500).}
 
@@ -47,20 +58,21 @@ coefficients obtained from FEIS and RE (\code{type="bs3"}).}
 \item{type}{the type of performed test(s).}
 \item{sample}{a list containing the IDs sampled in each run.}
 \item{seed}{the seed used for bootstrapping.}
+\item{terms}{character vector of covariates are included in the Wchi-squared test.}
 }
 \description{
-Estimates a bootstrapped Hausmann test for fixed effects individual slope models.
+Estimates a bootstrapped Hausman test for fixed effects individual slope models.
 }
 \details{
 The function computes a bootstrapped version of the Hausman test \insertCite{Hausman.1978.0}{feisr}.
-Pairs cluster bootstrapping \insertCite{Cameron.2008}{feisr} is used to obtain the empirical
+Pairs cluster bootstrapping \insertCite{Cameron.2008,Ruttenauer.2020}{feisr} is used to obtain the empirical
 variance-covariance matrix of the estimators, either for FEIS and conventional FE, convention FE and RE,
 or FEIS and RE.
 
-\code{type="bs1"} estimates a bootstrapped Hausmann test comparing fixed effects individual slope
+\code{type="bs1"} estimates a bootstrapped Hausman test comparing fixed effects individual slope
 models and conventional fixed effects models. In this case, \code{bsfeistest} tests for
 inconsistency of the convetional FE model due to heterogeneous slopes.
-\code{type="bs2"} estimates a bootstrapped version of the well-known Hausmann test comparing conventional
+\code{type="bs2"} estimates a bootstrapped version of the well-known Hausman test comparing conventional
 fixed effects models against random effects models.
 \code{type="bs3"} estimates a bootstrapped Hausman directly comparing FEIS against RE, thereby testing
 for inconsistency of the RE model due to either heterogeneous slopes or time-constant omitted heterogeneity.
@@ -74,11 +86,13 @@ feis.mod <- feis(lnw ~ marry + enrol | year,
                  data = mwp, id = "id", robust = TRUE)
 bsht <- bsfeistest(feis.mod, type = "bs1", rep = 5, seed = 1234, prog = FALSE)
 summary(bsht)
+
 }
 \references{
 \insertAllCited{}
 }
 \seealso{
-\code{\link[feisr]{feis}}, \code{\link[feisr]{feistest}}, \code{\link[plm]{plm}},
+\code{\link[feisr]{summary.feistest}}, \code{\link[feisr]{feistest}},
+\code{\link[feisr]{feis}},  \code{\link[plm]{plm}},
 \code{\link[aod]{wald.test}}, \code{\link[plm]{phtest}}
 }

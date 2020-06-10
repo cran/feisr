@@ -41,9 +41,9 @@ expand.formula <- function(x){
 #### Function Residual maker ####
 #################################
 
-resm <- function(x, ...){
+resm <- function(x, tol = .Machine$double.eps, ...){
   x <- as.matrix(x)
-  r <- diag(1, nrow(x)) - x %*% solve(t(x) %*% x) %*% t(x)
+  r <- diag(1, nrow(x)) - x %*% tcrossprod(solve(crossprod(x), tol = tol), x)
   return(r)
 }
 
@@ -51,19 +51,20 @@ resm <- function(x, ...){
 #### Function Predicted maker ####
 ##################################
 
-hatm <- function(y, x, checkcol=TRUE, ...){
+hatm <- function(y, x, checkcol=TRUE, tol = .Machine$double.eps, ...){
   x <- as.matrix(x)
+  y <- as.matrix(y)
 
   # Check for perfect collinearity within groups
   if(checkcol == TRUE){
     x.qr <- qr(x)
     if(x.qr$rank < ncol(x)){
       vars <- x.qr$pivot[1:x.qr$rank]
-      x <- x[, vars]
+      x <- x[, vars, drop = FALSE]
     }
   }
 
-  res <- x %*% solve(t(x) %*% x) %*% t(x) %*% as.matrix(y)
+  res <- x %*% solve(crossprod(x), crossprod(x, y), tol = tol)
   return(res)
 }
 
@@ -91,7 +92,7 @@ nowithinvar <- function(x, mf, id, tol = 1e-12, ...){
 
   within <- lapply(colnames(x), FUN = function(u) mf - apply(mf, 2, FUN = function(z)
     ave(z, x[, u], FUN = function(w) mean(w)))
-       - apply(mf, 2, FUN = function(v) ave(v, id, FUN=function(y) mean(y))))
+       - apply(mf, 2, FUN = function(v) ave(v, id, FUN = function(y) mean(y))))
 
   withinsd <- sapply(within, FUN = function(u) apply(u, 2, FUN = function(z) sd(z)))
 

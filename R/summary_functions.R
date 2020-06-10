@@ -1,6 +1,7 @@
 ###########################
 #### Describe function ####
 ###########################
+# From package plm
 #' @importFrom Rdpack reprompt
 
 
@@ -34,13 +35,20 @@ describe <- function(x,
 #' The summary method for feis objects generates some additional information
 #' about estimated feis models.
 #'
-#' @param object an object of class "\code{plm}".
+#' @seealso \code{\link[feisr]{feis}}
+#'
+#' @param object an object of class "\code{feis}".
+#' @param x an object of class "\code{summary.feis}".
 #' @param vcov a variance-covariance matrix furnished by the user or a function to calculate one.
+#' @param digits number of digits for printed output.
+#' @param width the maximum length of the lines in the printed output.
+#' @param subset a character or numeric vector indicating a subset of
+#'     the table of coefficients to be printed.
 #' @param ...	further arguments.
 #'
 #' @return An object of class "\code{summary.feis}", containing the elements
-#' of the feis object (see \code{\link[feisr]{feis}}). The following objects
-#' are modified:
+#' of the feis object (see \code{\link[feisr]{feis}}). The object is forwarded to
+#' print method. The following objects are modified:
 #' \item{coefficients}{a matrix with the estimated coefficients, standard errors,
 #' t-values, and p-values, if argument vcov is NULL the standard errors
 #' are calculated by the \code{vcov} in the input object.}
@@ -51,7 +59,9 @@ describe <- function(x,
 #' feis.mod <- feis(lnw ~ marry | exp,
 #'                  data = mwp, id = "id")
 #' summary(feis.mod)
+#'
 #' @export
+#'
 summary.feis <- function(object, vcov = NULL, ...){
 
   if(is.null(vcov)){
@@ -83,7 +93,7 @@ summary.feis <- function(object, vcov = NULL, ...){
 
 
 
-  class(object) <- c("summary.feis", "feis")
+  class(object) <- c("summary.feis")
   object
 }
 
@@ -93,7 +103,9 @@ summary.feis <- function(object, vcov = NULL, ...){
 #### Print Summary FEIS ####
 ############################
 
+#' @rdname summary.feis
 #' @export
+#'
 print.summary.feis <- function(x, digits = max(3, getOption("digits") - 2),
                                width=getOption("width"), subset=NULL,  ...){
   formula <- formula(x)
@@ -107,18 +119,18 @@ print.summary.feis <- function(x, digits = max(3, getOption("digits") - 2),
   #pdim <- pdim(x)
   #print(pdim)
 
-  cat("\nResiduals :\n")
+  cat("\nResiduals:\n")
   save.digits <- unlist(options(digits = digits))
   on.exit(options(digits = save.digits))
   print(sumres(x))
 
-  cat("\nCoefficients :\n")
+  cat("\nCoefficients:\n")
   if (is.null(subset)) printCoefmat(coef(x), digits = digits)
   else printCoefmat(coef(x)[subset, , drop = FALSE], digits = digits)
   cat("\n")
-  cat(paste(x$vcov_arg,       "\n", sep = ""))
-  cat(paste("Slope parameters: ", paste(x$slopevars, collapse=", "),        "\n", collapse = ""))
-  cat(paste("Total Sum of Squares:    ", signif(tss.feis(x),      digits), "\n", sep = ""))
+  cat(paste(x$vcov_arg, "\n", sep = ""))
+  cat(paste("Slope parameters: ", paste(x$slopevars, collapse=", "),  "\n", collapse = ""))
+  cat(paste("Total Sum of Squares:    ", signif(tss.feis(x), digits), "\n", sep = ""))
   cat(paste("Residual Sum of Squares: ", signif(rss.feis(x), digits), "\n", sep = ""))
   cat(paste("R-Squared:      ", signif(x$r.squared[1], digits),       "\n", sep = ""))
   cat(paste("Adj. R-Squared: ", signif(x$r.squared[2], digits),       "\n", sep = ""))
@@ -139,25 +151,54 @@ print.summary.feis <- function(x, digits = max(3, getOption("digits") - 2),
 
 
 
-###################################################
-#### Print Augmented Regression Test FEIS - FE ####
-###################################################
+#####################################################
+#### Print Artificial  Regression Test FEIS - FE ####
+#####################################################
 
+
+#' @title Summary for feistest and bsfeistest objects
+#'
+#' @description
+#' The summary method for feistest and bsfeistest objects prints the results
+#' of Artificial Regression Tests or Bootstrapped Hausman Tests for FEIS models.
+#'
+#' @seealso \code{\link[feisr]{feistest}}, \code{\link[feisr]{bsfeistest}}
+#'
+#' @param object an object of class "\code{feistest}" or "\code{bsfeistest}".
+#' @param x an object of class "\code{summary.feistest}" or "\code{summary.bsfeistest}".
+#' @param digits number of digits for printed output.
+#' @param width the maximum length of the lines in the printed output.
+#' @param ...	further arguments.
+#'
+#' @return An object of class "\code{summary.feistest}" or "\code{summary.bsfeistest}",
+#' equal to the original input object (see \code{\link[feisr]{feistest}} and
+#' \code{\link[feisr]{bsfeistest}}). The object is forwarded to print method.
+#'
+#' @examples
+#' data("mwp", package = "feisr")
+#' feis.mod <- feis(lnw ~ marry | exp,
+#'                  data = mwp, id = "id")
+#' ht <- feistest(feis.mod, robust = TRUE, type = "all")
+#' summary(ht)
+#'
 #' @export
+#'
 summary.feistest <- function(object, ...){
   class(object) <- c("summary.feistest", "feistest")
   object
 }
 
 
+#' @rdname summary.feistest
 #' @export
+#'
 print.summary.feistest <- function(x, digits = max(3, getOption("digits") - 2),
                          width=getOption("width"),  ...){
 
   cl <- x$call
   type <- x$type
 
-  name <- "Augmented Regression Test"
+  name <- "Artificial Regression Test"
   if(x$robust == T){name <- paste("Robust", name)}
 
   wt_feis <- x$wald_feis
@@ -200,7 +241,7 @@ print.summary.feistest <- function(x, digits = max(3, getOption("digits") - 2),
     cat("FEIS vs. FE:\n", "------------\n", sep = "")
     cat("H0: FEIS and FE estimates consistent", "\n")
     cat("Alternative H1: FE inconsistent", "\n")
-    cat("Model constraints:", names1, "= 0","\n", fill = TRUE)
+    cat("Model constraints:", paste0(names1, c(rep(",", (length(names1)-1)), "")), "= 0", "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v1["chi2"], digits = digits, nsmall = 1), ", df = ", v1["df"],
         ", P(> X2) = ", format(v1["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -216,7 +257,7 @@ print.summary.feistest <- function(x, digits = max(3, getOption("digits") - 2),
     cat("FE vs. RE:\n", "------------\n", sep = "")
     cat("H0: FE and RE estimates consistent", "\n")
     cat("Alternative H1: RE inconsistent", "\n")
-    cat("Model constraints:", names2, "= 0","\n", fill = TRUE)
+    cat("Model constraints:", paste0(names2, c(rep(",", (length(names2)-1)), "")), "= 0", "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v2["chi2"], digits = digits, nsmall = 1), ", df = ", v2["df"],
         ", P(> X2) = ", format(v2["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -232,7 +273,7 @@ print.summary.feistest <- function(x, digits = max(3, getOption("digits") - 2),
     cat("FEIS vs. RE:\n", "------------\n", sep = "")
     cat("H0: FEIS and RE estimates consistent", "\n")
     cat("Alternative H1: RE inconsistent", "\n")
-    cat("Model constraints:", names3, "= 0","\n", fill = TRUE)
+    cat("Model constraints:", paste0(names3, c(rep(",", (length(names3)-1)), "")), "= 0", "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v3["chi2"], digits = digits, nsmall = 1), ", df = ", v3["df"],
         ", P(> X2) = ", format(v3["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -249,14 +290,17 @@ print.summary.feistest <- function(x, digits = max(3, getOption("digits") - 2),
 #### Print Bootstrapped Regression Test FEIS - FE ####
 ######################################################
 
+#' @rdname summary.feistest
 #' @export
+#'
 summary.bsfeistest <- function(object, ...){
   class(object) <- c("summary.bsfeistest", "bsfeistest")
   object
 }
 
-
+#' @rdname summary.feistest
 #' @export
+#'
 print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2),
                                    width=getOption("width"),  ...){
 
@@ -306,7 +350,8 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
     cat("FEIS vs. FE:\n", "------------\n", sep = "")
     cat("H0: FEIS and FE estimates consistent", "\n")
     cat("Alternative H1: FE inconsistent", "\n")
-    cat("Model constraints:", "beta_FEIS", "=", "beta_FE", "\n", fill = TRUE)
+    cat("Model constraints:", "beta_FEIS", "=", "beta_FE", "for:",
+        paste0(names1, c(rep(",", (length(names1)-1)), "")), "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v1["chi2"], digits = digits, nsmall = 1), ", df = ", v1["df"],
         ", P(> X2) = ", format(v1["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -322,7 +367,8 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
     cat("FE vs. RE:\n", "------------\n", sep = "")
     cat("H0: FE and RE estimates consistent", "\n")
     cat("Alternative H1: RE inconsistent", "\n")
-    cat("Model constraints:", "beta_FE", "=", "beta_RE", "\n", fill = TRUE)
+    cat("Model constraints:", "beta_FE", "=", "beta_RE", "for:",
+        paste0(names2, c(rep(",", (length(names2)-1)), "")), "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v2["chi2"], digits = digits, nsmall = 1), ", df = ", v2["df"],
         ", P(> X2) = ", format(v2["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -338,7 +384,8 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
     cat("FEIS vs. RE:\n", "------------\n", sep = "")
     cat("H0: FEIS and RE estimates consistent", "\n")
     cat("Alternative H1: RE inconsistent", "\n")
-    cat("Model constraints:", "beta_FEIS", "=", "beta_RE", "\n", fill = TRUE)
+    cat("Model constraints:", "beta_FEIS", "=", "beta_RE", "for:",
+        paste0(names3, c(rep(",", (length(names3)-1)), "")), "\n", fill = TRUE)
     cat("Chi-squared test:\n")
     cat("Chisq = ", format(v3["chi2"], digits = digits, nsmall = 1), ", df = ", v3["df"],
         ", P(> X2) = ", format(v3["P"], digits = digits, nsmall = 1), "\n", sep = "")
@@ -353,6 +400,8 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
 #### Extract Function (for texreg) ####
 #######################################
 
+# # Extract function in package texreg since version 1.37.1
+#
 # #' @title Extract method for \code{feis}-class
 # #'
 # #' @description
@@ -371,8 +420,9 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
 # #' @examples
 # #' library(texreg)
 # #'
-# #' setMethod("extract", signature = className("feis", "feisr"),
-# #'           definition = extract.feis)
+# #' # Deprecated: Use feisr method extract (not exported). Now in texreg (>= 1.37.1).
+# #' # setMethod("extract", signature = className("feis", "feisr"),
+# #' #           definition = feisr::extract.feis)
 # #'
 # #' data("mwp", package = "feisr")
 # #' feis1.mod <- feis(lnw ~ marry + as.factor(yeargr)
@@ -382,7 +432,7 @@ print.summary.bsfeistest <- function(x, digits = max(3, getOption("digits") - 2)
 # #'                   | exp + I(exp^2), data = mwp, id = "id")
 # #' screenreg(list(feis1.mod, feis2.mod))
 # #'
-# #'@export
+# #'
 # #'
 extract.feis <- function(model, include.rsquared = TRUE, include.adjrs = TRUE,
                          include.nobs = TRUE, include.groups = TRUE,

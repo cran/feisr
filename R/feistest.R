@@ -5,37 +5,43 @@
 #' @title Artificial Regression Test
 #'
 #' @description
-#' Estimates a regression-based Hausmann test for fixed effects individual slope models.
+#' Estimates a regression-based Hausman test for fixed effects individual slope models.
 #'
 #'
 #' @details
-#' The Hausmann test can be computed by estimating a correlated random effects model
-#' \insertCite{@see @Wooldridge.2010.384, pp. 328-334}{feisr}. This is achieved by
+#' The Hausman test can be computed by estimating a correlated random effects model
+#' \insertCite{@see @Wooldridge.2010.384, pp. 328-334, @Ruttenauer.2020}{feisr}. This is achieved by
 #' estimating a Mundlak \insertCite{Mundlak.1978.0}{feisr} specification using random effects models
 #' with \code{\link[plm]{plm}}.
 #' Subsequently, \code{feistest} tests whether the time-constant variables / slope variables are correlated with
 #' the unobserved heterogeneity by using a Wald chi-squared test with \code{\link[aod]{wald.test}}.
 #'
-#' \code{type="art1"} estimates an extended regression-based Hausmann test comparing fixed effects
+#' \code{type="art1"} estimates an extended regression-based Hausman test comparing fixed effects
 #' individual slope models and conventional fixed effects models. For \code{art1} the
 #' Mundlak-specification \insertCite{Mundlak.1978.0}{feisr} includes the person-specific averages,
 #' but additionally the person-specific slope estimates used for "detrending" in \code{\link[feisr]{feis}}.
 #' This allows to test whether we can omit the estimated values based on the slopes and reduce the model
 #' to a conventional FE model. The Wald test of \code{type="art1"} is applied to the slope variables only.
-#' \code{type="art2"} estimates the conventional regression-based Hausmann test
+#' \code{type="art2"} estimates the conventional regression-based Hausman test
 #' \insertCite{@as described in @Wooldridge.2010.384, pp. 328-334}{feisr} comparing conventional
 #' fixed effects models against random effects models.
-#' \code{type="art3"} estimates a regression-based Hausmann test comparing FEIS directly against RE,
+#' \code{type="art3"} estimates a regression-based Hausman test comparing FEIS directly against RE,
 #' thereby testing for inconsistency of the RE model due to either heterogeneous slopes or time-constant
 #' omitted heterogeneity. For \code{art3} the Mundlak-specification includes only the person-specific
 #' slopes, and no averages. This allows to test whether we can omit the estimated values based on
 #' the slopes and reduce the model to a conventional RE model.
+#' \insertCite{@for a formal description please see @Ruttenauer.2020}{feisr}.
+#'
+#' Currently, the \code{tol} option in \code{feis()} is only forwarded in bsfeistest,
+#' but not in feistest.
+#'
 #'
 #'
 #' If specified (\code{robust=TRUE}), \code{feistest} uses panel-robust standard errors.
 #'
 #' @seealso
-#' \code{\link[feisr]{feis}}, \code{\link[feisr]{bsfeistest}}, \code{\link[plm]{plm}},
+#' \code{\link[feisr]{summary.feistest}}, \code{\link[feisr]{bsfeistest}},
+#' \code{\link[feisr]{feis}},  \code{\link[plm]{plm}},
 #' \code{\link[aod]{wald.test}}, \code{\link[plm]{phtest}}
 #'
 #' @param model	an object of class "\code{feis}".
@@ -43,6 +49,9 @@
 #' @param type one of "\code{all}" (the Default), "\code{art1}" for test of FEIS against FE only,
 #' "\code{art2}" for test of FE against RE only, and "\code{art3}" for test of FEIS against RE only
 #' (see also Details).
+#' @param terms An optional character vector specifying which coefficients should be jointly tested.
+#' By default, all covariates are included in the Wchi-squared test. For "\code{type=art2}", the
+#' slope variable is always included in "\code{terms}".
 #' @param ...	further arguments.
 #'
 #' @return An object of class "\code{feistest}", containing the following elements:
@@ -68,6 +77,7 @@
 #' (Default is \code{FALSE}.}
 #' \item{formula}{an object of class "\code{Formula}" describing the model.}
 #' \item{type}{the type of performed test(s).}
+#' \item{terms}{character vector of covariates are included in the Wchi-squared test.}
 #' @references
 #' \insertAllCited{}
 #'
@@ -77,11 +87,14 @@
 #'                  data = mwp, id = "id", robust = TRUE)
 #' ht <- feistest(feis.mod, robust = TRUE, type = "all")
 #' summary(ht)
+#' # Only for marry coefficient
+#' ht2 <- feistest(feis.mod, robust = TRUE, type = "all", terms = c("marry"))
+#' summary(ht2)
+#'
 #' @export
-
-
-#' @export
-feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2", "art3"), ...){
+#'
+feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2", "art3"),
+                     terms = NULL, ...){
 
 
   formula  <- model$formula
@@ -111,6 +124,18 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
   S <- S[, -1, drop = FALSE]
   colnames(S) <- cleani(colnames(S))
 
+  # Check if terms fit colnames
+  if(!is.null(terms)){
+    terms <- cleani(terms)
+    incl <- which(terms %in% colnames(X))
+    if(length(incl) != length(terms)){
+      excl <- terms[which(!terms %in% colnames(X))]
+      stop(paste("All terms must be included in model. Could not find:",
+                 paste(excl, collapse = ", "), "\n",
+                 "Available are:", paste(colnames(X), collapse = ", ")))
+    }
+  }
+
   # Transformed variables
   X_hat <- data.frame(model$modelhat)
   X_hat <- X_hat[, -1, drop = F]
@@ -130,12 +155,21 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
   }
   colnames(S_mean) <- paste(colnames(S_mean), "_mean", sep = "")
 
+  # Check for and drop NA coef columns
+  if(any(is.na(model$coefficients))){
+    drop <- which(is.na(model$coefficients))
+
+    X <- X[, -drop, drop = FALSE]
+    X_hat <- X_hat[, -drop, drop = FALSE]
+    X_mean <- X_mean[, -drop, drop = FALSE]
+
+  }
 
   # Combine (with fake year)
   i2 <- ave(1:length(i), i, FUN = function(u) seq_along(u))
   df <- data.frame(id = i, id2 = i2, Y, X, X_hat, X_mean, S, S_mean)
 
-  # FEIS vs FE
+  ### FEIS vs FE
   if(!type %in% c("art2", "art3")){
     ### Set up formula
 
@@ -161,16 +195,18 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 
     ### Perform wald test
 
-    v_hat <- colnames(X_hat)
-    v_mean <- colnames(X_mean)
-    v_smean <- colnames(S_mean)
+    if(is.null(terms)){
+      v_hat <- colnames(X_hat)
+    }else{
+      v_hat <- paste(terms, "_hat", sep = "")
+    }
 
     wt_feis <- aod::wald.test(b = coef(creis.mod), Sigma = vcov1,
                               Terms = which(names(creis.mod$coefficients) %in% v_hat))
   } else{wt_feis <- NULL; vcov1 <- NULL; creis.mod <- NULL}
 
 
-  # FE vs RE
+  ### FE vs RE
   if(!type %in% c("art1", "art3")){
     ### Set up formula
 
@@ -195,8 +231,13 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 
     ### Perform wald test
 
-    v_mean <- colnames(X_mean)
-    v_smean <- colnames(S_mean)
+    if(is.null(terms)){
+      v_mean <- colnames(X_mean)
+      v_smean <- colnames(S_mean)
+    }else{
+      v_mean <- paste(terms, "_mean", sep = "")
+      v_smean <- colnames(S_mean) # Makes sense to always include?
+    }
 
     # FE-RE
     wt_fe <- aod::wald.test(b = coef(cre.mod), Sigma = vcov2,
@@ -204,7 +245,7 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
   } else{wt_fe <- NULL; vcov2 <- NULL; cre.mod <- NULL}
 
 
-  # FEIS vs RE
+  ### FEIS vs RE
   if(!type %in% c("art1", "art2")){
     ### Set up formula
 
@@ -228,7 +269,11 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 
     ### Perform wald test
 
-    v_hat <- colnames(X_hat)
+    if(is.null(terms)){
+      v_hat <- colnames(X_hat)
+    }else{
+      v_hat <- paste(terms, "_hat", sep = "")
+    }
 
     # FEIS - RE
     wt_re <- aod::wald.test(b = coef(creis2.mod), Sigma = vcov3,
@@ -250,15 +295,13 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
   result$robust <- robust
   result$formula <- formula
   result$type <- type
+  result$terms <- terms
 
   class(result)  <-  c("feistest")
 
 
   return(result)
 }
-#' @exportClass feistest
-#'
-
 
 
 
@@ -271,19 +314,19 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 #' @title Bootstrapped Regression Test
 #'
 #' @description
-#' Estimates a bootstrapped Hausmann test for fixed effects individual slope models.
+#' Estimates a bootstrapped Hausman test for fixed effects individual slope models.
 #'
 #'
 #' @details
 #' The function computes a bootstrapped version of the Hausman test \insertCite{Hausman.1978.0}{feisr}.
-#' Pairs cluster bootstrapping \insertCite{Cameron.2008}{feisr} is used to obtain the empirical
+#' Pairs cluster bootstrapping \insertCite{Cameron.2008,Ruttenauer.2020}{feisr} is used to obtain the empirical
 #' variance-covariance matrix of the estimators, either for FEIS and conventional FE, convention FE and RE,
 #' or FEIS and RE.
 #'
-#' \code{type="bs1"} estimates a bootstrapped Hausmann test comparing fixed effects individual slope
+#' \code{type="bs1"} estimates a bootstrapped Hausman test comparing fixed effects individual slope
 #' models and conventional fixed effects models. In this case, \code{bsfeistest} tests for
 #' inconsistency of the convetional FE model due to heterogeneous slopes.
-#' \code{type="bs2"} estimates a bootstrapped version of the well-known Hausmann test comparing conventional
+#' \code{type="bs2"} estimates a bootstrapped version of the well-known Hausman test comparing conventional
 #' fixed effects models against random effects models.
 #' \code{type="bs3"} estimates a bootstrapped Hausman directly comparing FEIS against RE, thereby testing
 #' for inconsistency of the RE model due to either heterogeneous slopes or time-constant omitted heterogeneity.
@@ -292,13 +335,17 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 #' chi-squared test on the differences between coefficients.
 #'
 #' @seealso
-#' \code{\link[feisr]{feis}}, \code{\link[feisr]{feistest}}, \code{\link[plm]{plm}},
+#' \code{\link[feisr]{summary.feistest}}, \code{\link[feisr]{feistest}},
+#' \code{\link[feisr]{feis}},  \code{\link[plm]{plm}},
 #' \code{\link[aod]{wald.test}}, \code{\link[plm]{phtest}}
 #'
 #' @param model	an object of class "\code{feis}".
 #' @param type one of "\code{all}" (the Default), "\code{bs1}" for test of FEIS against FE only,
 #' "\code{bs2}" for test of FE against RE only, and "\code{bs3}" for test of FEIS against RE only
 #' (see also Details).
+#' @param terms An optional character vector specifying which coefficients should be jointly tested.
+#' By default, all covariates are included in the Wchi-squared test. For "\code{type=art2}", the
+#' slope variable is always included in "\code{terms}".
 #' @param rep the number of repetitions to be used in bootstrapping (default is 500).
 #' @param seed the seed used for random sampling in bootstrapping. Needs to be a valid integer.
 #' If not specified, the current seed is used.
@@ -328,6 +375,7 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 #' \item{type}{the type of performed test(s).}
 #' \item{sample}{a list containing the IDs sampled in each run.}
 #' \item{seed}{the seed used for bootstrapping.}
+#' \item{terms}{character vector of covariates are included in the Wchi-squared test.}
 #' @references
 #' \insertAllCited{}
 #'
@@ -337,12 +385,11 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 #'                  data = mwp, id = "id", robust = TRUE)
 #' bsht <- bsfeistest(feis.mod, type = "bs1", rep = 5, seed = 1234, prog = FALSE)
 #' summary(bsht)
+#'
 #' @export
-
-
-#' @export
+#'
 bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
-                     rep = 500, seed = NULL, prog = TRUE, ...){
+                       terms = NULL, rep = 500, seed = NULL, prog = TRUE, ...){
 
 
 
@@ -355,6 +402,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   nc <- length(model$coefficients)
   ns <- length(model$slopevars)
   cl <- model$call
+  tol <- model$tol
   type <- type[1]
 
   if (!type %in% c("all", "bs1", "bs2", "bs3")){
@@ -380,6 +428,13 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   S <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
   S <- S[, -1, drop = FALSE]
   colnames(S) <- cleani(colnames(S))
+
+  # Check for and drop NA coef columns
+  if(any(is.na(model$coefficients))){
+    drop <- which(is.na(model$coefficients))
+
+    X <- X[, -drop, drop = FALSE]
+  }
 
   # Combine (with fake year)
   i2 <- ave(1:length(i), i, FUN = function(u) seq_along(u))
@@ -410,7 +465,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
   # FEIS
   if(!type == "bs2"){
-    feis.mod <- feis(fm.feis, data = df, id = "id")
+    feis.mod <- feis(fm.feis, data = df, id = "id", tol = tol)
 
     coef.feis <- feis.mod$coefficients
   } else {coef.feis <- NA}
@@ -480,7 +535,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
     # FEIS
     if(!type=="bs2"){
-      tmp.feis <- feis(fm.feis, data = df.tmp, id = "sid")
+      tmp.feis <- feis(fm.feis, data = df.tmp, id = "sid", tol = tol)
 
       mat.coef.feis[j, ] <- t(tmp.feis$coefficients)
     }
@@ -527,9 +582,9 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   mat.bdiff.bs3 <- mat.coef.feis - mat.coef.re[, colnames(mat.coef.feis)]
 
   I <- matrix(1, ncol = 1, nrow = rep)
-  mean.feis <- I %*% (t(I) %*% mat.coef.feis) / rep
-  mean.fe <- I %*% (t(I) %*% mat.coef.fe) / rep
-  mean.re <- I %*% (t(I) %*% mat.coef.re) / rep
+  mean.feis <- I %*% crossprod(I, mat.coef.feis) / rep
+  mean.fe <- I %*% crossprod(I, mat.coef.fe) / rep
+  mean.re <- I %*% crossprod(I, mat.coef.re) / rep
 
   mat.mdiff.bs1 <- mean.feis - mean.fe[, colnames(mean.feis)]
   mat.mdiff.bs2 <- mean.fe - mean.re
@@ -542,9 +597,9 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
   ### Covariance matrix
 
-  V.bs1 <- (t(mat.diff.bs1) %*% mat.diff.bs1) / (rep - 1)
-  V.bs2 <- (t(mat.diff.bs2) %*% mat.diff.bs2) / (rep - 1)
-  V.bs3 <- (t(mat.diff.bs3) %*% mat.diff.bs3) / (rep - 1)
+  V.bs1 <- crossprod(mat.diff.bs1) / (rep - 1)
+  V.bs2 <- crossprod(mat.diff.bs2) / (rep - 1)
+  V.bs3 <- crossprod(mat.diff.bs3) / (rep - 1)
 
 
   ### Test statistic
@@ -553,21 +608,48 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   bdiff.bs2 <- coef.fe - coef.re
   bdiff.bs3 <- coef.feis - coef.re[names(coef.feis)]
 
+  # Check if terms fit colnames
+  if(!is.null(terms)){
+    terms <- cleani(terms)
+    incl <- which(terms %in% names(bdiff.bs1))
+    if(length(incl) != length(terms)){
+      excl <- terms[which(!terms %in% names(bdiff.bs1))]
+      stop(paste("All terms must be included in model. Could not find:",
+                 paste(excl, collapse = ", "), "\n",
+                 "Available are:", paste(names(bdiff.bs1), collapse = ", ")))
+    }
+  }
+
   # H.bs1 <- t(bdiff.bs1) %*% solve(V.bs1) %*% bdiff.bs1
   # H.bs1 <- t(bdiff.bs2) %*% solve(V.bs2) %*% bdiff.bs2
   if(!type %in% c("bs2", "bs3")){
+    if(!is.null(terms)){
+      tt1 <- which(names(bdiff.bs1) %in% terms)
+    }else{
+      tt1 <- 1:length(bdiff.bs1)
+    }
     H.bs1 <- aod::wald.test(b = bdiff.bs1, Sigma = V.bs1,
-                            Terms = 1:length(bdiff.bs1))
+                            Terms = tt1)
   } else {H.bs1 <- NULL}
 
   if(!type %in% c("bs1", "bs3")){
+    if(!is.null(terms)){
+      tt2 <- which(names(bdiff.bs2) %in% c(terms, sv))
+    }else{
+      tt2 <- 1:length(bdiff.bs2)
+    }
     H.bs2 <- aod::wald.test(b = bdiff.bs2, Sigma = V.bs2,
-                            Terms = 1:length(bdiff.bs2))
+                            Terms = tt2)
   }else{H.bs2 <- NULL}
 
   if(!type %in% c("bs1", "bs2")){
+    if(!is.null(terms)){
+      tt3 <- which(names(bdiff.bs3) %in% terms)
+    }else{
+      tt3 <- 1:length(bdiff.bs3)
+    }
     H.bs3 <- aod::wald.test(b = bdiff.bs3, Sigma = V.bs3,
-                            Terms = 1:length(bdiff.bs3))
+                            Terms = tt3)
   }else{H.bs3 <- NULL}
 
 
@@ -577,25 +659,24 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   result <- list(wald_feis    = H.bs1,
                  wald_fe      = H.bs2,
                  wald_re      = H.bs3,
-                 vcov.b1        = V.bs1,
-                 vcov.b2        = V.bs2,
-                 vcov.b3        = V.bs3,
+                 vcov.b1      = V.bs1,
+                 vcov.b2      = V.bs2,
+                 vcov.b3      = V.bs3,
                  bscoef.feis  = mat.coef.feis,
                  bscoef.fe    = mat.coef.fe,
                  bscoef.re    = mat.coef.re)
-  result$call <- cl
+  result$call    <- cl
   result$formula <- formula
-  result$type <- type
+  result$type    <- type
   result$samples <- sample
-  result$seed <- seed
+  result$seed    <- seed
+  result$terms   <- terms
 
-  class(result)  <-  c("bsfeistest")
+  class(result) <- c("bsfeistest")
 
 
   return(result)
 }
-#' @exportClass bsfeistest
-
 
 
 
