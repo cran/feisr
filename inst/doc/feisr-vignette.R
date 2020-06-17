@@ -35,6 +35,14 @@ wages.re <- plm(lnw ~ marry + enrol + yeduc + as.factor(yeargr)
                 + exp + I(exp^2), data = mwp, index = c("id", "year"),
                 model = "random", effect = "individual")
 
+## ----extract.feis, echo = FALSE , results = "hide", warning = FALSE, message = FALSE----
+# Fallback for production of vignettes if texreg < 1.37.1 (internal extract.feis)
+if(utils::packageVersion("texreg") < "1.37.1"){
+  library(texreg)
+  setMethod("extract", signature = className("feis", "feisr"),
+        definition = feisr:::extract.feis)
+}
+
 ## ----compare, width = 70------------------------------------------------------
 library(texreg)
 screenreg(list(wages.feis, wages.feis.rob, wages.fe, wages.re), digits = 3,
