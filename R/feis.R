@@ -51,7 +51,6 @@
 #'  , if \code{FALSE} those variables are omitted for the respective groups only (default is \code{FALSE}).
 #' @param tol	the tolerance for detecting linear dependencies in the residual maker transformation
 #' (see \code{\link[base]{solve}}). The argument is forwarded to \code{\link[feisr]{bsfeistest}}.
-#' @param newdata the new data set for the predict method.
 #' @param lhs,rhs indexes of the left- and right-hand side for the methods formula and terms.
 #' @param ...	further arguments.
 #'
@@ -142,7 +141,7 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   ns <- ncol(attr(terms(formula(formula, rhs = 2, lhs = 0)), "factors"))
   pcount <- ave(c(1:length(i)), i, FUN = function(x) length(x))
 
-  if(any(pcount<=(ns+1))){
+  if(any(pcount <= (ns + 1))){
     warning(paste("FEIS needs at least n(slopes)+1 observations per group. \n",
                   "You specified", ns, "slope parameter(s) plus intercept,",
                   "all groups with t <=", ns+1, "dropped", sep=" "), call. = TRUE, immediate. = TRUE)
@@ -208,8 +207,9 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
 
   df_step1 <- cbind(X1, Y1)
 
-  dhat <- by(df_step1, i, FUN = function(u) data.frame(hatm(y = u[, (nx + 1):(nx + ny)], x = u[, 1:nx],
-                                               checkcol = !dropgroups, tol = tol)))
+  dhat <- by(df_step1, i, FUN = function(u) data.frame(hatm(y = u[, (nx + 1):(nx + ny), drop = FALSE],
+                                                            x = u[, 1:nx, drop = FALSE],
+                                               checkcol = !dropgroups, tol = tol)), simplify = FALSE)
 
   if(utils::packageVersion("dplyr") >= "1.0.0"){
     dhat <- dplyr::bind_rows(rbind(dhat), .id = NULL) # only for version dplyr >= 1.0.0 keeps rownames
@@ -230,14 +230,18 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   ass_X <- attr(X, "assign")
   cont_X <- attr(X, "contrasts")
 
-  # Test for computationally singular (including slope vars)
-  novar <- nowithinvar(X1, X, i)
-  drop <- colnames(X)[novar]
-
-  if(any(novar[which(names(novar) != "(Intercept)")])){
-    drop <- drop[which(drop != "(Intercept)")]
-    X <- X[, -which(colnames(X) %in% drop)]
-  }
+  # # Test for computationally singular (including slope vars) # Instead use dhat == x later
+  # novar <- nowithinvar(X1, X, i)
+  # drop <- colnames(X)[novar]
+  #
+  # if(any(novar[which(names(novar) != "(Intercept)")])){
+  #   drop <- drop[which(drop != "(Intercept)")]
+  #   X <- X[, -which(colnames(X) %in% drop)]
+  #   cv <- cv[-which(cv %in% drop)]
+  #   warning(paste0("Dropped the following variables because of no variance within slope(s): ",
+  #                  paste(drop, collapse = ", ")),
+  #           call. = TRUE, immediate. = TRUE)
+  # }
 
   # Omit intercept
   if(plm::has.intercept(formula)[1] & intercept == FALSE){
@@ -254,10 +258,23 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
     }
   }
 
-  # Substract dhat
+  # Subtract dhat
   o1 <- match(cv, colnames(X))
   o2 <- match(cv, colnames(dhat))
   X[, o1] <- X[, o1] - dhat[, o2]
+
+  # Test within slope variance in X
+  zero <- rep(0, nrow(X))
+  novar <- sapply(1:ncol(X), function(z) all.equal(X[, z], zero, tol = 1e-12,
+                                                   check.attributes = FALSE, check.names = FALSE))
+  if(any(novar == TRUE)){
+    drop <- which(novar == TRUE)
+    X <- X[, - drop]
+    warning(paste0("Dropped the following variables because of no variance within slope(s): ",
+                   paste(cv[drop], collapse = ", ")),
+            call. = TRUE, immediate. = TRUE)
+    cv <- cv[-drop]
+  }
 
 
   Y <- as.matrix(model.response(data, "numeric"))

@@ -1,3 +1,11 @@
+### feisr 1.1.2
+
+- New options se.fit and interval for `predict.feis()`: Compute standard errors and confidence intervals for predicted values.
+
+- New function `detrend()`: Detrends the input data by the predicted values based on the slope parameters within each group.
+
+- Bug fix collinearity handling: now compares equality between predicted x and actual x.
+
 ### feisr 1.1.1
 
 - Bug fix for vignette: Add correct suggests version
