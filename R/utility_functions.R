@@ -277,6 +277,7 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
   nz <- ncol(Z)
 
   df_step1 <- cbind(Z, X)
+  rownames(df_step1) <- rownames(X)
 
   dhat <- by(df_step1, id, FUN = function(u) data.frame(hatm(y = u[, (nz + 1):(nz + nx), drop = FALSE],
                                                              x = u[, 1:nz, drop = FALSE],
