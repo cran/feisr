@@ -118,11 +118,25 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 
   X <- model.matrix(formula, data, rhs = 1, lhs = 0, cstcovar.rm = "all")
   colnames(X) <- cleani(colnames(X))
-  X <- X[, which(colnames(X) %in% cleani(cv)), drop = F]
+  X <- X[, match(cleani(cv), colnames(X)), drop = F]
 
   S <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
   S <- S[, -1, drop = FALSE]
   colnames(S) <- cleani(colnames(S))
+
+  # Transformed data
+  Xtrans <- model$modeltrans
+  colnames(Xtrans) <- cleani(colnames(Xtrans))
+  Xtrans <- Xtrans[, match(cleani(cv), colnames(Xtrans)), drop = FALSE]
+
+  # Get weights
+  w <- model$weights
+  if(all(w == 1)){
+    w <- 1
+    isw <- FALSE
+  }else {
+    isw <- TRUE
+  }
 
   # Check if terms fit colnames
   if(!is.null(terms)){
@@ -136,24 +150,35 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
     }
   }
 
+
+
   # Transformed variables
-  X_hat <- data.frame(model$modelhat)
-  X_hat <- X_hat[, -1, drop = F]
+  X_hat <- X - Xtrans
+  X_hat <- X_hat
   colnames(X_hat) <- cleani(colnames(X_hat))
   X_hat <- X_hat[, which(colnames(X_hat) %in% cleani(cv)), drop = F]
   colnames(X_hat) <- paste(colnames(X_hat), "_hat", sep = "")
 
-  X_mean <- apply(X, 2, function(u) ave(u, i, FUN = function(v) mean(v)))
+  # Generate (weighted) means
+  X_mean <- apply(X, 2, function(u) ave_wm(x = u, i = i, w = w))
   if(ncol(X) < 2){
     X_mean <- data.frame(X_mean, row.names = seq_along(X_mean))
   }
-  colnames(X_mean) <- paste(colnames(X_mean), "_mean", sep = "")
+  colnames(X_mean) <- paste(colnames(X), "_mean", sep = "")
 
-  S_mean <- apply(S, 2, function(u) ave(u, i, FUN = function(v) mean(v)))
+  S_mean <- apply(S, 2, function(u) ave_wm(x = u, i = i, w = w))
   if(ncol(S) < 2){
     S_mean <- data.frame(S_mean, row.names = seq_along(S_mean))
   }
-  colnames(S_mean) <- paste(colnames(S_mean), "_mean", sep = "")
+  colnames(S_mean) <- paste(colnames(S), "_mean", sep = "")
+
+  # If weights, pre-weight data
+  X <- X * sqrt(w)
+  S <- S * sqrt(w)
+  Y <- Y * sqrt(w)
+  X_hat <- X_hat * sqrt(w)
+  X_mean <- X_mean * sqrt(w)
+  S_mean <- S_mean * sqrt(w)
 
   # Check for and drop NA coef columns
   if(any(is.na(model$coefficients))){
@@ -165,9 +190,21 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 
   }
 
+  # Drop zero weights
+  if(isw){
+    zerow <- which(w == 0)
+    if(length(zerow) > 0){
+      oonz <- which(w != 0)
+    }else{
+      oonz <- 1:nrow(X)
+    }
+  }else{
+    oonz <- 1:nrow(X)
+  }
+
   # Combine (with fake year)
   i2 <- ave(1:length(i), i, FUN = function(u) seq_along(u))
-  df <- data.frame(id = i, id2 = i2, Y, X, X_hat, X_mean, S, S_mean)
+  df <- data.frame(id = i, id2 = i2, Y, X, X_hat, X_mean, S, S_mean)[oonz, ]
 
   ### FEIS vs FE
   if(!type %in% c("art2", "art3")){
@@ -381,10 +418,12 @@ feistest <- function(model = NA, robust = FALSE, type = c("all", "art1", "art2",
 #'
 #' @examples
 #' data("mwp", package = "feisr")
+#' \dontrun{
 #' feis.mod <- feis(lnw ~ marry + enrol | year,
 #'                  data = mwp, id = "id", robust = TRUE)
-#' bsht <- bsfeistest(feis.mod, type = "bs1", rep = 5, seed = 1234, prog = FALSE)
+#' bsht <- bsfeistest(feis.mod, type = "bs1", rep = 100, seed = 1234)
 #' summary(bsht)
+#' }
 #'
 #' @export
 #'
@@ -396,9 +435,6 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   formula  <- model$formula
   data <- model$model
   i <- model$id
-  N <- length(i)
-  ids <- unique(i)
-  n <- length(ids)
   nc <- length(model$coefficients)
   ns <- length(model$slopevars)
   cl <- model$call
@@ -423,7 +459,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
   X <- model.matrix(formula, data, rhs = 1, lhs = 0, cstcovar.rm = "all")
   colnames(X) <- cleani(colnames(X))
-  X <- X[, which(colnames(X) %in% cleani(cv)), drop = F]
+  X <- X[, match(cleani(cv), colnames(X)), drop = F]
 
   S <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
   S <- S[, -1, drop = FALSE]
@@ -436,9 +472,39 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
     X <- X[, -drop, drop = FALSE]
   }
 
+  # Get weights
+  w <- model$weights
+  if(all(w == 1)){
+    w <- 1
+    isw <- FALSE
+  }else {
+    isw <- TRUE
+  }
+
+  # If weights, pre-weight data
+  X <- X * sqrt(w)
+  S <- S * sqrt(w)
+  Y <- Y * sqrt(w)
+
+  # Drop zero weights
+  if(isw){
+    zerow <- which(w == 0)
+    if(length(zerow) > 0){
+      oonz <- which(w != 0)
+    }else{
+      oonz <- 1:nrow(X)
+    }
+  }else{
+    oonz <- 1:nrow(X)
+  }
+
   # Combine (with fake year)
   i2 <- ave(1:length(i), i, FUN = function(u) seq_along(u))
-  df <- data.frame(id = i, id2 = i2, Y, X, S)
+  df <- data.frame(id = i, id2 = i2, Y, X, S)[oonz, ]
+  ids <- unique(df$id)
+  i <- df$id
+  N <- length(i)
+  n <- length(ids)
 
 
   ### Set up formulas
@@ -465,7 +531,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
   # FEIS
   if(!type == "bs2"){
-    feis.mod <- feis(fm.feis, data = df, id = "id", tol = tol)
+    feis.mod <- feis(fm.feis, data = df, id = "id",  tol = tol)
 
     coef.feis <- feis.mod$coefficients
   } else {coef.feis <- NA}
@@ -492,8 +558,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
   mat.coef.re <- matrix(NA, nrow = rep, ncol = (ncol(X) + ncol(S)))
 
   colnames(mat.coef.feis) <- colnames(X)
-  colnames(mat.coef.fe) <- colnames(mat.coef.re) <-
-    c(colnames(X), colnames(S))
+  colnames(mat.coef.fe) <- colnames(mat.coef.re) <- c(colnames(X), colnames(S))
 
   # Sample id list
   sample <- list()
@@ -518,6 +583,7 @@ bsfeistest <- function(model = NA, type = c("all", "bs1", "bs2", "bs3"),
 
     oo <- lapply(sids, function(x) which(df$id %in% x))
     df.tmp <- df[unlist(oo), ]
+    w.tmp <- w[unlist(oo)]
 
     # New ids
     loo <- unlist(lapply(oo, function(x) length(x)))

@@ -12,7 +12,7 @@
 
 <meta name="author" content="Tobias Ruettenauer and Volker Ludwig" />
 
-<meta name="date" content="2021-01-15" />
+<meta name="date" content="2021-02-24" />
 
 <title>Fixed Effects Individual Slopes using feisr</title>
 
@@ -56,7 +56,14 @@ document.addEventListener('DOMContentLoaded', function() {
     </style>
 
 
-<style type="text/css">code{white-space: pre;}</style>
+<style type="text/css">
+  code {
+    white-space: pre;
+  }
+  .sourceCode {
+    overflow: visible;
+  }
+</style>
 <style type="text/css" data-origin="pandoc">
 pre > code.sourceCode { white-space: pre; position: relative; }
 pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
@@ -341,7 +348,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 <h1 class="title toc-ignore">Fixed Effects Individual Slopes using feisr</h1>
 <h4 class="author">Tobias Ruettenauer and Volker Ludwig</h4>
-<h4 class="date">2021-01-15</h4>
+<h4 class="date">2021-02-24</h4>
 
 
 
@@ -369,7 +376,7 @@ y_{it} - \hat{y}_{it} =&amp; (\boldsymbol{\mathbf{x}}_{it} - \hat{\boldsymbol{\m
 <li><p><code>bsfeistest()</code>: Estimates a bootstrapped Hausman test for fixed effects individual slope models.</p></li>
 <li><p><code>slopes()</code>: Extracts the individual slopes from <code>feis</code> objects.</p></li>
 </ul>
-<p>The functions included in the R package <code>feisr</code> are also available in the <a href="https://ideas.repec.org/c/boc/bocode/s458045.html">xtfeis ado</a> for Stata. The package <a href="https://CRAN.R-project.org/package=plm">plm</a> <span class="citation">(Croissant and Millo 2008, 2019)</span> provides estimation of related models, as for instance the mean group (MG) or common correlated effects mean groups (CCEMG) estimator via <code>pmg()</code> function, and the estimator of models with variable coefficients via <code>pvcm()</code>.</p>
+<p>The functions included in the R package <code>feisr</code> are also available in the <a href="https://ideas.repec.org/c/boc/bocode/s458045.html">xtfeis ado</a> for Stata. The package <a href="https://CRAN.R-project.org/package=plm">plm</a> <span class="citation">(Croissant and Millo 2008, 2019)</span> provides estimation of related models, as for instance the mean group (MG) or common correlated effects mean groups (CCEMG) estimator via <code>pmg()</code> function, and the estimator of models with variable coefficients via <code>pvcm()</code>. The package <a href="https://CRAN.R-project.org/package=fixest">fixest</a> also provides estimation of FE models with individual slopes in its function `feols’, including higher dimensional FEIS models and instrumental variable approaches.</p>
 <div id="estimating-feis-models" class="section level2">
 <h2>Estimating <code>feis</code> models</h2>
 <p>We demonstrate the most important functions of the <code>feisr</code> package by conducting an exemplary replication of the results presented in <span class="citation">Ludwig and Bruederl (2018)</span>. We therefore use the <code>mwp</code> panel data, containing information on wages and family status of 268 men. This is a random sample drawn from the National Longitudinal Survey of Youth <span class="citation">(Bureau of Labor Statistics 2014)</span>, and more details on the selection of observations and variable construction can be found in <span class="citation">Ludwig and Bruederl (2018)</span>. To load the package and data use:</p>

@@ -43,7 +43,13 @@ coef.feis <- function(object,...){
 #' @rdname feis
 #' @export
 sigma.feis <- function(object,...){
-  sqrt(sum(residuals(object)^2) / df.residual(object))
+  u <- resid(object)
+  nna <- which(!is.na(u))
+  w <- object$weights
+  if(length(w) > 1){
+    w <- w[nna]
+  }
+  sqrt(sum(w * u[nna]^2) / df.residual(object))
 }
 
 
@@ -167,9 +173,11 @@ fitted.feis <- function(object,...){
 #' new <- data.frame(age = seq(-10, 10, 1))
 #' feis.pred <- predict(feis.mod, newdata = new,
 #'                      se.fit = TRUE, interval = "confidence")
+#'
+#' \dontrun{
 #' matplot(new$age, feis.pred$fit, lty = c(1,2,2),
 #'         type = "l", ylab = "predicted y")
-#'
+#' }
 #'
 #' @export
 predict.feis <- function(object, newdata = NULL, se.fit = FALSE, vcov = NULL,

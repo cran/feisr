@@ -40,14 +40,25 @@ test_that("Drop (within-) constant vars (Wages)", {
 
 
 # Handling of perfectly collinear slopes (error message)
+# Make test QR rank specific (for handling chcks with alternative BLAS)
+devtolwin <- 2.220446e-22
+Xm <- Wages[, c("year", "exp")] - apply(Wages[, c("year", "exp")], 2,
+                                        FUN = function(u) ave(u, Wages$id, FUN = function(z) mean(z)))
+rank <- qr(as.matrix(Xm), tol = devtolwin)$rank
 test_that("Avoid collinearity by default tol value", {
-expect_warning(feis(lwage ~ ed + sex + bluecol + ind + smsa +  married + wks | year + exp,
-                    data = Wages, id = "id", robust = F))
+  if(rank == 2){
+    expect_warning(feis(lwage ~ ed + sex + bluecol + ind + smsa +  married + wks | year + exp,
+                        data = Wages, id = "id", robust = F, tol = devtolwin))
+  }
+  if(rank != 2){
+    expect_error(feis(lwage ~ ed + sex + bluecol + ind + smsa +  married + wks | year + exp,
+                        data = Wages, id = "id", robust = F, tol = devtolwin))
+  }
 })
 
 test_that("Stop if slopes perfectly collinear", {
   expect_error(feis(lwage ~ ed + sex + bluecol + ind + smsa +  married + wks | year + exp,
-                      data = Wages, id = "id", robust = F, tol = 1e-07))
+                      data = Wages, id = "id", robust = F, tol = 1e-04))
 })
 
 
@@ -63,6 +74,35 @@ test_that("Drop groups without within slope var", {
   expect_gt(length(feis3.mod$na.action), length(feis2.mod$na.action))
   expect_false(identical(feis3.mod$coefficients, feis2.mod$coefficients))
 })
+
+
+
+
+
+### NA coef handling
+
+
+data("mwp", package = "feisr")
+mwp$wts <- 0.3
+mwp$wts[1:(nrow(mwp)/2)] <- 1
+mwp$lnw[sample(1:nrow(mwp), 10)] <- NA
+mwp$enrol2 <- mwp$enrol
+
+wages.feis1 <- feis(lnw ~ marry + enrol  + yeduc
+                    | exp, data = mwp, weights = mwp$wts, id = "id")
+
+expect_warning(
+  wages.feis2 <- feis(lnw ~ marry + enrol + enrol2 + yeduc
+                      | exp, data = mwp, weights = mwp$wts, id = "id")
+)
+
+test_that("Results equal if NA coef dropped because of collinearity", {
+  expect_equal(wages.feis1$coefficients, wages.feis2$coefficients, tolerance = 1e-10)
+  expect_equal(vcov(wages.feis1, scale = TRUE), vcov(wages.feis2, scale = TRUE), tolerance = 1e-10)
+})
+
+
+
 
 
 

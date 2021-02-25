@@ -3,7 +3,7 @@
 #######################
 #' @importFrom Rdpack reprompt
 #' @importFrom utils packageVersion
-#' @importFrom stats as.formula ave coef coefficients lm model.matrix model.response printCoefmat pt resid sd terms update var
+#' @importFrom stats as.formula ave coef coefficients lm model.matrix model.response model.weights printCoefmat pt resid sd terms update var
 
 #' @title Fixed Effects Individual Slope Estimator
 #'
@@ -28,9 +28,9 @@
 #' \itemize{
 #'   \item \code{formula = y ~ x1 + x2 | x3 + x4}
 #' }
-#' If the second part is not specified (and individual "slopes" are estimated only by an intercept),
-#' the model reduces to a conventional fixed effects (within) model. In this case please use
-#' the well-established \code{\link[plm]{plm}} (\code{model="within"}) function instead of \code{feis}.
+#'
+#' To estimate a conventional fixed effects model without individual slopes, please use
+#' \code{y ~ x1 + x2 | 1} to indicate that the slopes should only contain an individual-specific intercept.
 #'
 #' If specified, \code{feis} estimates panel-robust standard errors. Panel-robust standard errors are
 #' robust to arbitrary forms of serial correlation within groups formed by \code{id} as well as
@@ -45,6 +45,7 @@
 #' @param object,x,model	an object of class "\code{feis}".
 #' @param data a \code{data.frame} containing the specified variables.
 #' @param id the name of a unique group / person identifier (as string).
+#' @param weights an optional vector of weights to be used in the fitting process. See \code{\link[stats]{lm}}.
 #' @param robust logical. If \code{TRUE} estimates cluster robust standard errors (default is \code{FALSE}).
 #' @param intercept logical. If \code{TRUE} estimates the model with an intercept (default is \code{FALSE}).
 #' @param dropgroups logical. If \code{TRUE} groups without any within variance on a slope variable are dropped
@@ -66,10 +67,12 @@
 #' \item{modelhat}{a constructed model frame as a \code{data.frame} containing the predicted
 #'   values from the first stage regression using the slope variable(s) as predictor(s).}
 #' \item{modeltrans}{a constructed model frame as a \code{data.frame} containing the "detrended"
-#'   variables used for the final model estimation and the untransformed slope variables.}
+#'   variables used for the final model estimation.
+#'   Note that the weights are already used for detrending if specified.}
 #' \item{response}{the vector of the "detrended" response variable.}
 #' \item{fitted.values}{the vector of fitted values (computed from the "detrended" data).}
 #' \item{id}{a vector containing the unique person identifier.}
+#' \item{weights}{a vector containing weights used in fitting, or integer 1 if not speficied in call.}
 #' \item{call}{the matched call.}
 #' \item{assign}{assign attributes of the formula.}
 #' \item{na.omit}{(where relevant) a vector of the omitted observations. The only handling method
@@ -93,7 +96,7 @@
 #'
 #' @export
 #'
-feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
+feis <- function(formula, data, id, weights = NULL, robust = FALSE, intercept = FALSE,
                  dropgroups = FALSE, tol = .Machine$double.eps, ...){
 
   if(!is.character(formula)){
@@ -108,21 +111,27 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   orig_rownames <- row.names(data)
 
   # Extract id
+  if(!id %in% colnames(data)){
+    stop(paste0("ID variable not found in data."))
+  }
   i <- data[, which(colnames(data) == id)]
 
   # eval the model.frame
   if (length(formula)[2] == 2){
     formula  <-  expand.formula(formula)
   }else{
-    stop(paste("No individual slopes specified. Please use plm"))
+    stop(paste("No individual slopes specified.
+               For conventional FE please use 'y ~ x | 1' explicitly."))
   }
   if (! plm::has.intercept(formula)[2]){
     stop(paste("Individual slopes have to be estimated with intercept"))
   }
 
+
+
   cl <- match.call()
   mf <- match.call(expand.dots = FALSE)
-  m <- match(c("formula", "data", "subset", "weights", "na.action"), names(mf), 0)
+  m <- match(c("formula", "data", "weights", "na.action"), names(mf), 0)
   mf <- mf[c(1, m)]
   mf$drop.unused.levels  <-  TRUE
   mf[[1]] <- as.name("model.frame")
@@ -130,6 +139,7 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   new_rownames <- 1:nrow(data)
   row.names(data) <- new_rownames
   mf$data <- data
+  mf$weights <- weights
 
   # Eval
   data <- eval(mf, parent.frame())
@@ -138,7 +148,12 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   i <- i[as.numeric(row.names(data))]
 
   # Subset to obs with N > n_slopes+1
-  ns <- ncol(attr(terms(formula(formula, rhs = 2, lhs = 0)), "factors"))
+  if(length(formula(formula, rhs = 2, lhs = 0)) == 2 &&
+     as.character(formula(formula, rhs = 2, lhs = 0))[2] == "1"){
+    ns <- 0
+  }else{
+    ns <- ncol(attr(terms(formula(formula, rhs = 2, lhs = 0)), "factors"))
+  }
   pcount <- ave(c(1:length(i)), i, FUN = function(x) length(x))
 
   if(any(pcount <= (ns + 1))){
@@ -153,28 +168,32 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
 
   }
 
+
   # Check for collinearity in slopes and within variance in slopes (to avoid computationally singular)
-  X1_test <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
-  X1_test_dm <- X1_test[, -1, drop = FALSE] - apply(X1_test[, -1, drop = FALSE], 2,
-                                               FUN = function(u) ave(u, i, FUN = function(z) mean(z)))
+  if(ns != 0){
+    X1_test <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
+    X1_test_dm <- X1_test[, -1, drop = FALSE] - apply(X1_test[, -1, drop = FALSE], 2,
+                                                      FUN = function(u) ave(u, i, FUN = function(z) mean(z)))
 
-  if(qr(X1_test_dm, tol = tol)$rank < ncol(X1_test_dm)){
-    stop(paste("Perfect collinearity in slope variables. See 'tol' option"))
-  }
 
-  # Check within variance
-  wvar <- apply(X1_test[, -1, drop = FALSE], 2, FUN = function(u) ave(u, i, FUN = function(z) sd(z)))
-  novar <- apply(wvar, 1, FUN = function(u) any(u == 0))
+    if(qr(X1_test_dm, tol = tol)$rank < ncol(X1_test_dm)){
+      stop(paste("Perfect collinearity in slope variables. See 'tol' option"))
+    }
 
-  if(any(novar) & dropgroups == TRUE){
-    nom <- length(unique(i[which(novar)]))
-    warning(paste(nom, "groups without any within variance on slope variable(s) dropped"),
-            call. = TRUE, immediate. = TRUE)
+    # Check within variance
+    wvar <- apply(X1_test[, -1, drop = FALSE], 2, FUN = function(u) ave(u, i, FUN = function(z) sd(z)))
+    novar <- apply(wvar, 1, FUN = function(u) any(u == 0))
 
-    # Reduce sample
-    data <- data[-which(novar), ]
-    i <- i[-which(novar)]
+    if(any(novar) & dropgroups == TRUE){
+      nom <- length(unique(i[which(novar)]))
+      warning(paste(nom, "groups without any within variance on slope variable(s) dropped"),
+              call. = TRUE, immediate. = TRUE)
 
+      # Reduce sample
+      data <- data[-which(novar), ]
+      i <- i[-which(novar)]
+
+    }
   }
 
 
@@ -186,12 +205,23 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   # Preserve original row.names
   row.names(data)  <-  orig_rownames[as.numeric(row.names(data))]
 
-
   # Names
   #sv <- attr(terms(formula(formula, rhs = 2, lhs = 0)), "term.labels")
   cv <- attr(terms(formula(formula, rhs = 1, lhs = 0)), "term.labels")
   rv <- all.vars(formula(formula, rhs = 0, lhs = 1))
 
+  ### Apply weights
+  w <- model.weights(data)
+  if (!is.null(w)) {
+    if (!is.numeric(w)) {
+      stop("'weights' must be a numeric vector")
+    }
+    isw <- TRUE
+  }
+  else {
+    w <- 1
+    isw <- FALSE
+  }
 
   ### First level (individual slope) regression
   X1 <- model.matrix(formula, data, rhs = 2, lhs = 0, cstcovar.rm = "all")
@@ -205,11 +235,37 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   ny <- ncol(Y1)
   nx <- ncol(X1)
 
-  df_step1 <- cbind(X1, Y1)
+  df_step1 <- cbind(X1, Y1, w)
 
-  dhat <- by(df_step1, i, FUN = function(u) data.frame(hatm(y = u[, (nx + 1):(nx + ny), drop = FALSE],
-                                                            x = u[, 1:nx, drop = FALSE],
-                                               checkcol = !dropgroups, tol = tol)), simplify = FALSE)
+  # # Set up multisession
+  # if(parallel == TRUE){
+  #   suppressWarnings({pc1 <- require("future"); pc2 <- require("future.apply")})
+  #   if(!pc1 | !pc2){
+  #     stop(paste("Parallel computing requires packages future and future.apply."))
+  #   }
+  #   if(is.null(workers)){
+  #     workers <- future::availableCores(logical = FALSE)/2
+  #   }
+  #   future::plan(multisession, workers = workers)
+  # }
+  # if(parallel == TRUE){
+  #   dhat <- future.apply::future_by(df_step1, i, FUN = function(u)
+  #     data.frame(hatm(y = u[, (nx + 1):(nx + ny), drop = FALSE],
+  #                     x = u[, 1:nx, drop = FALSE],
+  #                     weights = u[, (nx + ny + 1)],
+  #                     checkcol = !dropgroups, tol = tol, isw = isw)),
+  #     simplify = FALSE)
+  #
+  # }
+
+  # Make hat matrix
+  dhat <- by(df_step1, i, FUN = function(u)
+    data.frame(hatm(y = u[, (nx + 1):(nx + ny), drop = FALSE],
+                    x = u[, 1:nx, drop = FALSE],
+                    weights = u[, (nx + ny + 1)],
+                    checkcol = !dropgroups, tol = tol, isw = isw)),
+    simplify = FALSE)
+
 
   if(utils::packageVersion("dplyr") >= "1.0.0"){
     dhat <- dplyr::bind_rows(rbind(dhat), .id = NULL) # only for version dplyr >= 1.0.0 keeps rownames
@@ -273,7 +329,8 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
     warning(paste0("Dropped the following variables because of no variance within slope(s): ",
                    paste(cv[drop], collapse = ", ")),
             call. = TRUE, immediate. = TRUE)
-    cv <- cv[-drop]
+    cv <- cv[-(drop - ifelse(intercept, 1, 0))]
+    ass_X <- ass_X[-drop]
   }
 
 
@@ -282,7 +339,12 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
 
 
   # Store transformed data
-  transformed <- data.frame(Y, X)
+  if(intercept){
+    transformed <- data.frame(Y, X[, -1, drop = TRUE])
+  }else{
+    transformed <- data.frame(Y, X)
+  }
+
   # colnames(transformed)[1] <- rv
   colnames(transformed) <- c(rv, cv)
 
@@ -299,78 +361,88 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
   #
   # result  <-  lm(f, data = data.frame(transformed))
 
-  result <- stats::lm.fit(X, Y, ...)
+  if(!isw){
+    result <- stats::lm.fit(X, Y, ...)
+    oonz <- 1:nrow(X)
+  }else{
+
+    # Account for zero weights
+    zerow <- which(w == 0)
+    if(length(zerow) > 0){
+      warning(paste(length(zerow), "observations with zero weights dropped"),
+              call. = TRUE, immediate. = TRUE)
+
+      oonz <- which(w != 0)
+    }else{
+      oonz <- 1:nrow(X)
+    }
+
+    result <- stats::lm.wfit(X, Y, w = w, ...)
+    # result <- stats::lm.wfit(X[oonz, ], Y[oonz], w = w[oonz, ], ...)
+  }
+
+  # Check rank
+  r <- result$qr$rank
+  p <- result$qr$pivot[1:r]
+  if(r < ncol(X)){
+    dv <- colnames(X)[-p]
+    warning(paste("Variable(s) dropped because of collinearity:", paste(dv, collapse = ", ")),
+            call. = TRUE, immediate. = TRUE)
+  }
 
   # Exract coefs
-  beta <- result$coefficients
+  beta <- result$coefficients[p]
   # aliased <- result$aliased
 
   # Extract residuals
   u <- resid(result)
-  k <- length(unique(i)) * ncol(X1) + ncol(X)
-  df <- length(u) - k
+  k <- length(unique(i[oonz])) * ncol(X1) + r
+  df <- length(u[oonz]) - k
 
   # Extract Rsquared
   r.squared <- r.sq.feis(result, adj = FALSE, intercept = intercept)
   adj.r.squared <- r.sq.feis(result, adj = TRUE, intercept = intercept)
+  # One could also pass the overall dfs, but: tss and mss are net of FE and slopes,
+  # do we need need FEs and slopes in df correction for within R2 then?
+  # adj.r.squared <- r.sq.feis(result, adj = TRUE, df = df, intercept = intercept)
 
   # Fitted values (similar fitted values as plm for FE)
-  fitted <- as.vector(Y - u)
+  fitted <- result$fitted.values
 
   names(fitted) <- rownames(X)
   names(Y) <- rownames(X)
   names(u) <- rownames(X)
 
   ### Standard errors
-
-
-  # Check for NAs in beta, and drop vars from for SE calculation
-  if(any(is.na(beta))){
-    Xn <- X[, -which(is.na(beta))]
-
-    vcov <- matrix(NA, ncol = ncol(X), nrow = ncol(X))
-    colnames(vcov) <- colnames(X)
-    rownames(vcov) <- colnames(X)
-
-    if(!robust){
-      sigma <- sum((u * u)) / (df)
-      tmp <- sigma * solve(crossprod(Xn))
-      vcov[rownames(tmp), colnames(tmp)] <- tmp
-      # se <- sqrt(diag(vcov))
-    }
-
-    # Cluster robust SEs
-    if(robust){
-      mxu <- Xn * u
-      e <- rowsum(mxu, i)
-      dfc <- ((length(unique(i)) / (length(unique(i)) - 1))
-              * ((length(i) - 1) / (length(i) - (ncol(X1) + ncol(Xn)))))
-      vcovCL <- dfc * (solve(crossprod(Xn)) %*% crossprod(e) %*% solve(crossprod(Xn)))
-
-      vcov[rownames(vcovCL), colnames(vcovCL)] <- vcovCL
-
-      # se <- sqrt(diag(vcov))
-    }
-
+  uw <- u[oonz]
+  if(isw){
+    ww <- w[oonz]
   }else{
-    if(!robust){
-      sigma <- sum((u * u)) / (df)
-      vcov <- sigma * solve(crossprod(X))
-      # se <- sqrt(diag(vcov))
-    }
-
-    # Cluster robust SEs
-    if(robust){
-      mxu <- X * u
-      e <- rowsum(mxu, i)
-      dfc <- ((length(unique(i)) / (length(unique(i)) - 1))
-              * ((length(i) - 1) / (length(i) - (ncol(X1) + ncol(X)))))
-      vcovCL <- dfc * (solve(crossprod(X)) %*% crossprod(e) %*% solve(crossprod(X)))
-      # se <- sqrt(diag(vcovCL))
-
-      vcov <- vcovCL
-    }
+    ww <- w
   }
+
+
+  ### Standard errors
+  Xn <- result$qr$qr[oonz, 1:r, drop = FALSE]
+  R <- chol2inv(Xn)
+
+
+  if(!robust){
+    sigma <- sum(ww * uw^2, na.rm = TRUE) / (df)
+    vcov <- sigma * chol2inv(Xn)
+  }
+
+  # Cluster robust SEs
+  if(robust){
+    mxu <- X[oonz, p, drop = FALSE] * uw * ww
+    e <- rowsum(mxu, i[oonz])
+    dfc <- ((length(unique(i[oonz])) / (length(unique(i[oonz])) - 1))
+            * ((length(i[oonz]) - 1) / (length(i[oonz]) - (ncol(X1) + ncol(Xn)))))
+    vcovCL <- dfc * R %*% crossprod(e) %*% R
+
+    vcov <- vcovCL
+  }
+  colnames(vcov) <- rownames(vcov) <- names(beta)
 
 
   ### Output
@@ -385,7 +457,8 @@ feis <- function(formula, data, id, robust = FALSE, intercept = FALSE,
                modeltrans    = transformed,
                response      = Y,
                fitted.values = fitted,
-               id            = i)
+               id            = i,
+               weights       = w)
   result$call <- cl
   result$assign <- ass_X
   result$na.action <- omitted

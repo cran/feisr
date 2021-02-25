@@ -1,4 +1,4 @@
-#' @importFrom stats complete.cases
+#' @importFrom stats complete.cases weighted.mean
 
 
 ###################################
@@ -55,7 +55,7 @@ resm <- function(x, tol = .Machine$double.eps, ...){
 #### Function Predicted maker ####
 ##################################
 
-hatm <- function(y, x, checkcol = TRUE, tol = .Machine$double.eps, ...){
+hatm <- function(y, x, weights = NULL, checkcol = TRUE, tol = .Machine$double.eps, isw = FALSE, ...){
   x <- as.matrix(x)
   y <- as.matrix(y)
 
@@ -68,7 +68,12 @@ hatm <- function(y, x, checkcol = TRUE, tol = .Machine$double.eps, ...){
     }
   }
 
-  res <- stats::fitted(stats::lm.fit(x, y, tol = tol))
+  if(!isw){
+    res <- stats::fitted(stats::lm.fit(x, y, tol = tol))
+  }else{
+    res <- stats::fitted(stats::lm.wfit(x, y, w = weights, tol = tol))
+  }
+
   return(res)
 }
 
@@ -109,12 +114,13 @@ hatm <- function(y, x, checkcol = TRUE, tol = .Machine$double.eps, ...){
 #'  \code{slopes} as variable(s). Otherwise must be excluded.
 #' @param slopes a \code{data.frame}, \code{matrix}, or \code{vector} of slopes to be used for detrending,
 #'  not containing an intercept. Optionally, a \code{character} vector of the names of slope variables
-#'  in \code{data}.
+#'  in \code{data}. For pure de-meaning use \code{"slopes = 1"}.
 #' @param id a \code{vector} of a unique group / person identifier. Optionally, a \code{character}
 #'  of the name of the unique group / person identifier in \code{data}. For overall detrending,
 #'  use \code{"id = 1"}.
-#' @param intercept logical. If \code{TRUE} the slopes will contain and an individual
+#' @param intercept logical. If \code{TRUE} the slopes will contain an individual
 #'  intercept (default is \code{TRUE}). For \code{"id = 1"}, this is an overall intercept.
+#'  Ignored if "slopes = 1".
 #' @param na.action character, either \code{na.exclude} (default) or \code{na.omit} indicates the use
 #'  of \code{NA}s. \code{na.exclude} passes \code{NA}s through to the output (same length as input).
 #'  \code{na.omit} drops \code{NA} rows (list-wise).
@@ -158,7 +164,12 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
     stop(paste("id is missing. For overall detrend, use 'id = 1'"))
   }
   if(is.null(slopes)){
-    stop(paste("slopes is missing with no default. Misspelled?"))
+    stop(paste("Argument slopes missing. Misspelled?"))
+  }
+  if(length(slopes) == 1 && slopes == 1){
+    dem <- TRUE
+  }else{
+    dem <- FALSE
   }
 
   ov <- FALSE
@@ -190,7 +201,7 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
   }
 
   # All slopes available
-  if(!is.character(slopes)){
+  if(!is.character(slopes) && !dem){
     if(is.vector(slopes)){
       ls <- length(slopes)
     }else{
@@ -199,6 +210,10 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
     if(ld != ls){
       stop(paste("slopes must have same length as data"))
     }
+  }
+
+  if(dem){
+    slopes <- rep(1, ld)
   }
 
   if(is.character(slopes)){
@@ -231,10 +246,15 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
   id <- c(id)[cp]
 
   # Make model matrix
-  fmz <- formula(paste0("~", paste0(colnames(slopes), collapse = "+")))
+  if(dem){
+    fmz <- formula(paste0("~", "1"))
+  }else{
+    fmz <- formula(paste0("~", paste0(colnames(slopes), collapse = "+")))
+  }
+
   Z <- model.matrix(fmz, slopes)
   # instead of update fm -1 use [,-1] (to avoid contrasts for intercept)
-  if(intercept == FALSE){
+  if(intercept == FALSE && !dem){
     Z <- Z[, -1, drop = FALSE]
   }
 
@@ -330,6 +350,16 @@ detrend <- function(data, slopes, id = NULL, intercept = TRUE,
 
 
 
+#############################
+#### Weighted mean by id ####
+#############################
+
+
+ave_wm <- function(x, i, w, na.rm = TRUE){
+  Z <- data.frame(x, i, w)
+  res <- ave(Z[, c(1, 3)], Z[, 2], FUN = function(v) weighted.mean(v[, 1], w = v[, 2], na.rm = na.rm))[[1]]
+  return(res)
+}
 
 
 ############################
@@ -417,7 +447,15 @@ model.response.feis <- function(x, ...){
 #################
 
 sumres <- function(x, ...){
-  sr <- summary(unclass(resid(x)))
+  u <- resid(x)
+  nna <- which(!is.na(u))
+  w <- x$weights
+  if(length(w) > 1){
+    sr <- summary(unclass(w[nna] * u[nna]))
+  }else{
+    sr <- summary(unclass(u[nna]))
+  }
+
   srm <- sr["Mean"]
   if (abs(srm) < 1e-10){
     sr <- sr[c(1:3, 5:6)]
@@ -426,7 +464,16 @@ sumres <- function(x, ...){
 }
 
 rss.feis <- function(x, ...){
-  rss <- sum(x$residuals^2)
+  u <- resid(x)
+  nna <- which(!is.na(u))
+  w <- x$weights
+  if(length(w) > 1){
+    w <- w[nna]
+  }else if(is.null(w)){
+    w <- 1
+  }
+  rss <- sum(w * u[nna]^2)
+  return(rss)
 }
 
 
@@ -435,7 +482,36 @@ rss.feis <- function(x, ...){
 #############
 
 tss.feis <- function(x, ...){
-  var(model.response.feis(x)) * (length(model.response.feis(x)) - 1)
+  u <- resid(x)
+  nna <- which(!is.na(u))
+  f <- fitted(x)[nna]
+  y <- f - u
+  N <- length(y)
+  w <- x$weights
+  if(length(w) > 1){
+    w <- w[nna]
+  }else if(is.null(w)){
+    w <- 1
+  }
+  tss <- sum(w * (y - mean(y))^2)
+  return(tss)
+}
+
+
+##############
+#### RMSE ####
+##############
+
+rmse.feis <- function(x, ...){
+  u <- resid(x)
+  df <- df.residual(x)
+  nna <- which(!is.na(u))
+  w <- x$weights
+  if(length(w) > 1){
+    w <- w[nna]
+  }
+  rmse <- sqrt(sum(w * u[nna]^2) / df)
+  return(rmse)
 }
 
 
@@ -446,25 +522,34 @@ tss.feis <- function(x, ...){
 r.sq.feis <- function(object, adj=FALSE, df=NULL, intercept=FALSE){
   z <- object
   r <- z$residuals
+  nna <- which(!is.na(r))
+  r <- r[nna]
   n <- length(r)
-  rss <- sum(r^2)
-  f <- z$fitted.values
+  tss <- tss.feis(object)
+  f <- z$fitted.values[nna]
   if(is.null(df)){
-    rdf <- z$df.residual
+    rdf <- df.residual(object)
   } else{
     rdf <- df
   }
 
+  w <- object$weights
+  if(length(w) > 1){
+    w <- w[nna]
+  }else if(is.null(w)){
+    w <- 1
+  }
+
   if(intercept == TRUE){
-    mss <- sum((f - mean(f))^2)
+    mss <- sum(w * (f - mean(f))^2)
     df.int <- 1L
     rdf <- rdf + 1
   } else{
-    mss <- sum(f^2)
+    mss <- sum(w * f^2)
     df.int <- 0L
   }
-  r.squared <- mss/(mss + rss)
-  adj.r.squared <- 1 - (1 - r.squared) * ((n - df.int)/rdf) ##TR: Correct for slope parameters??
+  r.squared <- mss/tss
+  adj.r.squared <- 1 - (1 - r.squared) * ((n - df.int)/rdf)
 
   if(adj){
     return(adj.r.squared)

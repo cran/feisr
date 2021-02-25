@@ -1,3 +1,23 @@
+# feisr 1.2.0
+
+### Major Changes
+
+- `feis()` now has option `weights` to estimate FEIS models with weighted least squares
+
+- Allows estimation of conventional FE models by 'y ~ x | 1'
+
+- Rank deficit columns / NA coefs are now dropped from the model (with warning message)
+
+- Bug fix: Omit intercept from transformed data if intercept = TRUE
+
+### Minor Changes
+
+- `detrend()` allows demeaning by 'slopes = 1'
+
+- Minor documentation and vignette updates
+
+- Define collinearity test (R:44:1) dynamic based on QR rank on system
+
 ### feisr 1.1.4
 
 - Bug fix: pass tol-option to collinearity handling (feis and detrend) introduced in v1.1.2

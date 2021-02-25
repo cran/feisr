@@ -18,6 +18,7 @@ feis(
   formula,
   data,
   id,
+  weights = NULL,
   robust = FALSE,
   intercept = FALSE,
   dropgroups = FALSE,
@@ -52,6 +53,8 @@ feis(
 
 \item{id}{the name of a unique group / person identifier (as string).}
 
+\item{weights}{an optional vector of weights to be used in the fitting process. See \code{\link[stats]{lm}}.}
+
 \item{robust}{logical. If \code{TRUE} estimates cluster robust standard errors (default is \code{FALSE}).}
 
 \item{intercept}{logical. If \code{TRUE} estimates the model with an intercept (default is \code{FALSE}).}
@@ -81,10 +84,12 @@ An object of class "\code{feis}", containing the following elements:
 \item{modelhat}{a constructed model frame as a \code{data.frame} containing the predicted
   values from the first stage regression using the slope variable(s) as predictor(s).}
 \item{modeltrans}{a constructed model frame as a \code{data.frame} containing the "detrended"
-  variables used for the final model estimation and the untransformed slope variables.}
+  variables used for the final model estimation.
+  Note that the weights are already used for detrending if specified.}
 \item{response}{the vector of the "detrended" response variable.}
 \item{fitted.values}{the vector of fitted values (computed from the "detrended" data).}
 \item{id}{a vector containing the unique person identifier.}
+\item{weights}{a vector containing weights used in fitting, or integer 1 if not speficied in call.}
 \item{call}{the matched call.}
 \item{assign}{assign attributes of the formula.}
 \item{na.omit}{(where relevant) a vector of the omitted observations. The only handling method
@@ -118,9 +123,9 @@ the model can be estimated with:
 \itemize{
   \item \code{formula = y ~ x1 + x2 | x3 + x4}
 }
-If the second part is not specified (and individual "slopes" are estimated only by an intercept),
-the model reduces to a conventional fixed effects (within) model. In this case please use
-the well-established \code{\link[plm]{plm}} (\code{model="within"}) function instead of \code{feis}.
+
+To estimate a conventional fixed effects model without individual slopes, please use
+\code{y ~ x1 + x2 | 1} to indicate that the slopes should only contain an individual-specific intercept.
 
 If specified, \code{feis} estimates panel-robust standard errors. Panel-robust standard errors are
 robust to arbitrary forms of serial correlation within groups formed by \code{id} as well as
