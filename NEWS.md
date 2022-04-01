@@ -1,3 +1,17 @@
+# feisr 1.3.0
+
+### Major Changes
+
+- `wald.test()` (from aod package) included as internal function to avoid archival
+
+### Minor Changes
+
+- Bug-fix `detrend()` for handling of vectors in `data` 
+
+- Bug-fix `detrend()` for character vectors of data length in `id` 
+
+- `predicted` option in `detrend()` returns predicted values
+
 # feisr 1.2.0
 
 ### Major Changes
